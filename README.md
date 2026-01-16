@@ -12,11 +12,11 @@ A visitor in Kerala can read Malayalam boards even if they only know Hindi or En
 
 Students can instantly convert regional scripts into Roman or their native script.
 
-This is transliteration (script conversion), not translation, ensuring original meaning is preserved.
+This is transliteration (script conversion), not translation, ensuring original phonetic(sound/pronounciation) is preserved.
 
 🎯 Problem Statement
 
-India has hundreds of languages and scripts.
+India has hundreds of languages which have 12 different scripts.
 People often face difficulty reading unfamiliar scripts when traveling, studying, or accessing public information.
 
 ❌ Language barriers cause:
@@ -29,19 +29,19 @@ Accessibility issues
 
 Information gaps
 
-✅ Bhasha Dristi solves this by providing real-time script conversion using AI.
+✅ Bhasha Dristi solves this by providing real-time script conversion using ML models.
 
 ✨ Key Features
 
-📷 Camera-based OCR scanning
+📷 VLM based text extraction (image transliteration)
 
 📝 Text input transliteration
 
-🌐 Supports multiple Indian languages
+🌐 Supports multiple Indian scripts
 
 🔄 Script-to-script conversion (not translation)
 
-⚡ Fast AI-powered processing
+⚡ Fast API processing
 
 📤 Copy, share, and save results
 
@@ -61,8 +61,6 @@ Single codebase for Android & iOS
 🧪 Backend
 
 FastAPI (Python)
-
-High performance REST API
 
 Easy integration with ML models
 
@@ -90,7 +88,7 @@ Flutter ↔ Python backend integration
 
 ❓ Why These Technologies Were Used
 Technology	Reason
-Flutter	Fast development, beautiful UI, cross-platform
+Flutter	Fast development, user friendly UI, cross-platform
 FastAPI	Lightweight, fast backend server
 Python	Best ecosystem for AI & OCR
 Transformers	Pretrained AI models
@@ -106,6 +104,8 @@ Choose input method:
 📷 Camera Scan
 
 📝 Manual Text Input
+
+🎙️voice input
 
 Select target language/script.
 
