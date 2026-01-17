@@ -128,7 +128,7 @@ class _SplashScreenState extends State<SplashScreen> {
             child: Opacity(
               opacity: 0.6,
               child: Text(
-                "See Language. Feel Meaning.",
+                "Read Any Script With Clarity.",
                 textAlign: TextAlign.center,
                 style: GoogleFonts.notoSans(
                   fontSize: 14,
