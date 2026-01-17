@@ -1,0 +1,295 @@
+
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import JSONResponse
+from transformers import AutoModelForImageTextToText, AutoProcessor
+from PIL import Image
+import torch
+import io
+from pydantic import BaseModel
+
+
+from pydub import AudioSegment
+
+
+import speech_recognition as sr
+
+
+from transLit import transliterate_text  
+
+app = FastAPI()
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+
+# LOAD QWEN-VL MODEL
+
+
+MODEL_NAME = "Qwen/Qwen2.5-VL-3B-Instruct"
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+model = AutoModelForImageTextToText.from_pretrained(
+    MODEL_NAME,
+    device_map="auto",
+    dtype=torch.float16 if device == "cuda" else torch.float16
+)
+
+processor = AutoProcessor.from_pretrained(MODEL_NAME)
+
+
+
+# UNICODE LANGUAGE DETECTION
+
+def detect_language_by_unicode(text: str):
+    for ch in text:
+        if not ch.strip():
+            continue
+
+        code = ord(ch)
+
+        if 0x0B00 <= code <= 0x0B7F: return "Odia"
+        if 0x0980 <= code <= 0x09FF: return "Bengali"
+        if 0x0900 <= code <= 0x097F: return "Hindi/Devanagari"
+        if 0x0A00 <= code <= 0x0A7F: return "Punjabi"
+        if 0x0A80 <= code <= 0x0AFF: return "Gujarati"
+        if 0x0B80 <= code <= 0x0BFF: return "Tamil"
+        if 0x0C00 <= code <= 0x0C7F: return "Telugu"
+        if 0x0C80 <= code <= 0x0CFF: return "Kannada"
+        if 0x0D00 <= code <= 0x0D7F: return "Malayalam"
+        if code < 128: return "English"
+
+    return "Unknown"
+
+
+
+# OCR ENDPOINT (CAMERA + GALLERY)
+@app.post("/ocr")
+async def ocr(
+    file: UploadFile = File(...),
+    target_script: str = Form("Latin")
+):
+
+    try:
+        print("\n==============================")
+        print(" Received image from frontend:", file.filename)
+        print("Target script requested:", target_script)
+        print("==============================")
+
+     
+        #  Read Image
+     
+        img_bytes = await file.read()
+        print("✔ Image bytes received:", len(img_bytes), "bytes")
+
+        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        print("✔ Image successfully opened")
+
+      
+        # Build OCR Prompt
+        
+        print("🔍 Running Qwen-VL OCR...")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": "Extract all text in the image."}
+                ]
+            }
+        ]
+
+        inputs = processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt"
+        ).to(model.device)
+
+    
+        #  Run OCR
+   
+        generated = model.generate(**inputs, max_new_tokens=512)
+
+        prompt_len = inputs["input_ids"].shape[-1]
+        output_ids = generated[0, prompt_len:]
+        extracted_text = processor.decode(output_ids, skip_special_tokens=True).strip()
+
+        print(" Extracted Text:")
+        print(extracted_text)
+
+      
+        # Detect Language
+       
+        detected_language = detect_language_by_unicode(extracted_text)
+        print(" Detected Language:", detected_language)
+
+     
+        #  Transliteration
+       
+        transliterated = transliterate_text(
+            extracted_text,
+            detected_language,
+            target_script
+        )
+
+        print("Transliterated Output:")
+        print(transliterated)
+
+     
+        # Return Response
+   
+        print(" Sending response back to frontend")
+        print("==============================\n")
+
+        return JSONResponse({
+            "extracted_text": extracted_text,
+            "language": detected_language,
+            "target_script": target_script,
+            "transliterated": transliterated
+        })
+
+    except Exception as e:
+        print(" ERROR in /ocr:", str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+class TextRequest(BaseModel):
+    text:str
+    target_script:str
+
+@app.post("/text_transliterate")
+async def text_transliterate(req: TextRequest):
+    try:
+        print("\n==============================")
+        print(" Text transliteration request received")
+        print("Text:", req.text)
+        print("Target Script:", req.target_script)
+        print("==============================")
+
+        detected_lang = detect_language(req.text)
+        print(" Detected Language:", detected_lang)
+
+        transliterated = transliterate_text(
+            req.text,
+            detected_lang,
+            req.target_script
+        )
+
+        print(" Transliterated Output:", transliterated)
+        print(" Returning response\n")
+
+        return {
+            "language": detected_lang,
+            "target_script": req.target_script,
+            "transliterated": transliterated
+        }
+
+    except Exception as e:
+        print(" ERROR in /text_transliterate:", str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+class ResponseModel(BaseModel):
+    transliterated_text: str
+    target_language: str
+
+
+@app.post("/voice-transliterate", response_model=ResponseModel)
+async def voice_to_transliteration(
+    file: UploadFile = File(...),
+    target_lang: str = Form(...)   # User selects output script
+):
+    recognizer = sr.Recognizer()
+
+    # Read the uploaded audio file
+    audio_bytes = await file.read()
+
+    # Convert audio input to WAV
+    audio = AudioSegment.from_file(io.BytesIO(audio_bytes))
+    wav_io = io.BytesIO()
+    audio.export(wav_io, format="wav")
+    wav_io.seek(0)
+
+    # Convert audio → text using Google STT
+    with sr.AudioFile(wav_io) as source:
+        audio_data = recognizer.record(source)
+        try:
+            text = recognizer.recognize_google(audio_data)
+        except:
+            text = ""
+
+   
+
+    transliterated = transliterate_text(
+        text,
+        "English",       # source language always English for voice
+        target_lang      # user’s chosen output script
+    )
+
+    return ResponseModel(
+        
+        transliterated_text=transliterated,
+        target_language=target_lang
+    )
+
+
+class TransliterationRequest(BaseModel):
+    text: str
+    source_language: str   
+    target_script: str
+
+def detect_language(text: str) -> str:
+    code_point = ord(text.strip()[0]) 
+
+   
+    if 0x0900 <= code_point <= 0x097F:
+        return "Devanagari"
+
+    if 0x0980 <= code_point <= 0x09FF:
+        return "Bengali"
+
+    if 0x0A80 <= code_point <= 0x0AFF:
+        return "Gujarati"
+
+    if 0x0B00 <= code_point <= 0x0B7F:
+        return "Odia"
+
+
+    if 0x0B80 <= code_point <= 0x0BFF:
+        return "Tamil"
+
+    if 0x0C00 <= code_point <= 0x0C7F:
+        return "Telugu"
+
+
+    if 0x0C80 <= code_point <= 0x0CFF:
+        return "Kannada"
+
+   
+    if 0x0D00 <= code_point <= 0x0D7F:
+        return "Malayalam"
+
+    
+    return "Latin"
+
+
+
+class TransliterationRequest(BaseModel):
+    text: str
+    target_script: str     # e.g. "Latin", "Devanagari", "Bengali", etc.
+
+
+
+
+
+
+
+@app.get("/")
+def root():
+    return {"status": "OCR + Language Detection + Transliteration API is running!"}
