@@ -19,7 +19,21 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
   File? _selectedImage;
   bool _isProcessing = false;
 
-  // ✅ Enter immersive mode (hide status + nav safely)
+  // 🌐 Supported Target Scripts
+  final Map<String, String> _languageScripts = {
+    "Hindi (Devanagari)": "Devanagari",
+    "Bengali": "Bengali",
+    "Odia": "Odia",
+    "Gujarati": "Gujarati",
+    "Punjabi (Gurmukhi)": "Gurmukhi",
+    "Tamil": "Tamil",
+    "Telugu": "Telugu",
+    "Kannada": "Kannada",
+    "Malayalam": "Malayalam",
+    "English (Latin)": "Latin",
+  };
+
+  // ✅ Enter immersive mode during crop
   Future<void> _enterCropMode() async {
     await SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.immersiveSticky,
@@ -27,7 +41,7 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
     );
   }
 
-  // ✅ Restore system UI fully after crop
+  // ✅ Restore system UI after crop
   Future<void> _exitCropMode() async {
     await SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
@@ -35,13 +49,13 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
     );
   }
 
+  // 📸 Pick + Crop Image
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image == null) return;
 
     try {
-      // 🔒 Hide system bars before opening cropper
       await _enterCropMode();
 
       final cropped = await ImageCropper().cropImage(
@@ -59,27 +73,75 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
         ],
       );
 
-      // 🔓 Always restore UI
       await _exitCropMode();
 
       if (cropped == null) return;
-
       if (!mounted) return;
+
       setState(() => _selectedImage = File(cropped.path));
     } catch (e) {
-      await _exitCropMode(); // safety restore
+      await _exitCropMode();
       debugPrint("Crop Error: $e");
     }
   }
 
+  // 🌍 Select Target Language Bottom Sheet
+  Future<String?> _selectTargetLanguage() {
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF1C2331),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Center(
+                child: Text(
+                  "Select Target Script",
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFC89D29),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ..._languageScripts.entries.map(
+                (entry) => ListTile(
+                  title: Text(
+                    entry.key,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Colors.white54,
+                  ),
+                  onTap: () => Navigator.pop(context, entry.value),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // 🚀 OCR Processing
   Future<void> _processImage() async {
     if (_selectedImage == null) return;
+
+    final targetLang = await _selectTargetLanguage();
+    if (targetLang == null) return;
 
     setState(() => _isProcessing = true);
 
     try {
       final result =
-          await OCRService.processImage(_selectedImage!.path, "Latin");
+          await OCRService.processImage(_selectedImage!.path, targetLang);
 
       final extracted = result["extracted_text"] ?? "No text found";
       final detectedLang = result["language"] ?? "Unknown";
@@ -99,7 +161,7 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
           builder: (_) => ResultScreen(
             text: extracted,
             language: detectedLang,
-            targetLanguage: "Latin",
+            targetLanguage: targetLang,
             romanText: roman,
           ),
         ),
@@ -134,6 +196,11 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: gold,
                   foregroundColor: navy,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
               )
             : Column(
@@ -151,9 +218,14 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: gold,
                       foregroundColor: navy,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 26, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
                     child: Text(
-                      _isProcessing ? "Processing..." : "Process Image",
+                      _isProcessing ? "Processing..." : "Select Language →",
                     ),
                   ),
                 ],

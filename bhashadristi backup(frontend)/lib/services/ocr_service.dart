@@ -3,23 +3,27 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
 class OCRService {
-  // ⚠️ Change IP if needed
-  static const String baseUrl = "http://10.170.195.103:8000";
+  // ⚠️ Change this IP if backend changes
+  static const String baseUrl = "http://10.170.195.28:8000";
 
+  // ✅ Endpoints EXACTLY as backend
   static const String ocrEndpoint = "$baseUrl/ocr";
-  static const String textEndpoint = "$baseUrl/text_transliterate";
+  static const String textEndpoint = "$baseUrl/text-transliterate";
   static const String voiceEndpoint = "$baseUrl/voice-transliterate";
 
   // ---------------- LANGUAGE NORMALIZER ----------------
   static String normalizeLanguage(String lang) {
     const mapping = {
-      "Hindi/Devanagari": "Devanagari",
+      "Hindi": "Devanagari",
+      "Hindi (Devanagari)": "Devanagari",
       "English": "Latin",
+      "English (Latin)": "Latin",
       "Bengali": "Bengali",
       "Odia": "Odia",
       "Tamil": "Tamil",
       "Telugu": "Telugu",
-      "Punjabi": "Punjabi",
+      "Punjabi": "Gurmukhi",
+      "Punjabi (Gurmukhi)": "Gurmukhi",
       "Gujarati": "Gujarati",
       "Kannada": "Kannada",
       "Malayalam": "Malayalam",
@@ -28,13 +32,27 @@ class OCRService {
     return mapping[lang] ?? lang;
   }
 
-  // ---------------- IMAGE OCR ----------------
-  static Future<Map<String, dynamic>> processImage(
-      String filePath, String targetLang) async {
-    try {
-      final request = http.MultipartRequest("POST", Uri.parse(ocrEndpoint));
+  // ---------------- LANGUAGE JOIN HELPER ----------------
+  // ✅ Converts ["Hindi","English"] → "Hindi, English"
+  static String joinLanguages(dynamic langs) {
+    if (langs is List && langs.isNotEmpty) {
+      return langs.join(", ");
+    }
+    return "Unknown";
+  }
 
-      // Python expects: target_script
+  // ================= IMAGE OCR =================
+  static Future<Map<String, dynamic>> processImage(
+    String filePath,
+    String targetLang,
+  ) async {
+    try {
+      final request = http.MultipartRequest(
+        "POST",
+        Uri.parse(ocrEndpoint),
+      );
+
+      // Backend expects: target_script
       request.fields["target_script"] = normalizeLanguage(targetLang);
 
       request.files.add(
@@ -46,20 +64,23 @@ class OCRService {
         ),
       );
 
-      final streamed = await request.send();
+      final streamed =
+          await request.send().timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
 
-      print("📩 OCR SERVER RESPONSE: ${response.body}");
+      print("📩 OCR RESPONSE: ${response.body}");
 
       if (response.statusCode != 200) {
         throw "Server error ${response.statusCode}: ${response.body}";
       }
 
       final json = jsonDecode(response.body);
+      final langs = json["language_per_line"];
 
       return {
         "extracted_text": json["extracted_text"] ?? "",
-        "language": json["language"] ?? "",
+        "language_per_line": langs ?? [],
+        "language": joinLanguages(langs), // ✅ safe display string
         "target_script": json["target_script"] ?? "",
         "transliterated": json["transliterated"] ?? "",
       };
@@ -69,20 +90,24 @@ class OCRService {
     }
   }
 
-  // ---------------- TEXT TRANSLITERATION ----------------
+  // ================= TEXT TRANSLITERATION =================
   static Future<Map<String, dynamic>> processText(
-      String text, String targetLang) async {
+    String text,
+    String targetLang,
+  ) async {
     try {
-      final response = await http.post(
-        Uri.parse(textEndpoint),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "text": text,
-          "target_script": normalizeLanguage(targetLang),
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse(textEndpoint),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "text": text,
+              "target_script": normalizeLanguage(targetLang),
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
 
-      print("📩 TEXT SERVER RESPONSE: ${response.body}");
+      print("📩 TEXT RESPONSE: ${response.body}");
 
       if (response.statusCode != 200) {
         throw "Server error ${response.statusCode}: ${response.body}";
@@ -92,22 +117,28 @@ class OCRService {
 
       return {
         "language": json["language"] ?? "",
-        "target_script": json["target_script"] ?? "",
-        "transliterated": json["transliterated_text"] ?? "",
+        "transliterated": json["transliterated_text"] ??
+            json["transliterated"] ??
+            "",
       };
     } catch (e) {
-      print("❌ Text Transliteration Error: $e");
+      print("❌ Text Error: $e");
       return {"error": e.toString()};
     }
   }
 
-  // ---------------- VOICE TRANSLITERATION ----------------
+  // ================= VOICE TRANSLITERATION =================
   static Future<Map<String, dynamic>> processVoice(
-      String audioPath, String targetLang) async {
+    String audioPath,
+    String targetLang,
+  ) async {
     try {
-      final request =
-          http.MultipartRequest("POST", Uri.parse(voiceEndpoint));
+      final request = http.MultipartRequest(
+        "POST",
+        Uri.parse(voiceEndpoint),
+      );
 
+      // ⚠️ Backend expects: target_lang (not target_language)
       request.fields["target_lang"] = normalizeLanguage(targetLang);
 
       request.files.add(
@@ -119,10 +150,11 @@ class OCRService {
         ),
       );
 
-      final streamed = await request.send();
+      final streamed =
+          await request.send().timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
 
-      print("📩 VOICE SERVER RESPONSE: ${response.body}");
+      print("📩 VOICE RESPONSE: ${response.body}");
 
       if (response.statusCode != 200) {
         throw "Server error ${response.statusCode}: ${response.body}";
@@ -131,11 +163,12 @@ class OCRService {
       final json = jsonDecode(response.body);
 
       return {
-        "transliterated": json["transliterated_text"] ?? "",
+        "transliterated_text":
+            json["transliterated_text"] ?? json["transliterated"] ?? "",
         "target_language": json["target_language"] ?? "",
       };
     } catch (e) {
-      print("❌ Voice Transliteration Error: $e");
+      print("❌ Voice Error: $e");
       return {"error": e.toString()};
     }
   }
