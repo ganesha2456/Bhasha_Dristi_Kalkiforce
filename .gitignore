@@ -18,3 +18,5 @@ android/local.properties
 # OS
 Thumbs.db
 .DS_Store
+
+android/.kotlin/

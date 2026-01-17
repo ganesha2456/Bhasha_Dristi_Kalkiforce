@@ -1,9 +1,8 @@
-// lib/screens/camera_screen.dart
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 
+import '../utils/image_cropper_helper.dart';
 import 'select_language_screen.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -61,14 +60,21 @@ class _CameraScreenState extends State<CameraScreen> {
 
     try {
       final pic = await _controller!.takePicture();
-      final file = File(pic.path);
+
+      final cropped =
+          await ImageCropperHelper.cropImage(pic.path);
+
+      if (cropped == null) {
+        setState(() => _isTakingPhoto = false);
+        return;
+      }
 
       if (!mounted) return;
 
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => SelectLanguageScreen(imageFile: file),
+          builder: (_) => SelectLanguageScreen(imageFile: cropped),
         ),
       ).then((_) {
         if (mounted) setState(() => _isTakingPhoto = false);
@@ -103,7 +109,6 @@ class _CameraScreenState extends State<CameraScreen> {
           children: [
             Positioned.fill(child: CameraPreview(_controller!)),
 
-            // Bottom Controls
             if (!_isTakingPhoto)
               Positioned(
                 bottom: 0,
@@ -121,47 +126,42 @@ class _CameraScreenState extends State<CameraScreen> {
                       end: Alignment.topCenter,
                     ),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          IconButton(
-                            onPressed: toggleFlash,
-                            icon: Icon(
-                              _flashOn ? Icons.flash_on : Icons.flash_off,
-                              color: Colors.white,
-                              size: 32,
+                      IconButton(
+                        onPressed: toggleFlash,
+                        icon: Icon(
+                          _flashOn ? Icons.flash_on : Icons.flash_off,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: captureImage,
+                        child: Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border:
+                                Border.all(color: Colors.white, width: 5),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(8.0),
+                            child: CircleAvatar(
+                              backgroundColor: Colors.white,
                             ),
                           ),
-                          GestureDetector(
-                            onTap: captureImage,
-                            child: Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                    color: Colors.white, width: 5),
-                              ),
-                              child: const Padding(
-                                padding: EdgeInsets.all(8.0),
-                                child: CircleAvatar(
-                                  backgroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: switchCamera,
-                            icon: const Icon(
-                              Icons.cameraswitch_rounded,
-                              color: Colors.white,
-                              size: 32,
-                            ),
-                          ),
-                        ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: switchCamera,
+                        icon: const Icon(
+                          Icons.cameraswitch_rounded,
+                          color: Colors.white,
+                          size: 32,
+                        ),
                       ),
                     ],
                   ),

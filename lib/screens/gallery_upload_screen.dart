@@ -1,8 +1,8 @@
-// lib/screens/gallery_upload_screen.dart
-
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 
 import '../services/ocr_service.dart';
 import '../services/history_manager.dart';
@@ -19,91 +19,67 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
   File? _selectedImage;
   bool _isProcessing = false;
 
-  // BACKEND TARGET SCRIPT OPTIONS
-  final Map<String, String> _languageScripts = {
-    "Devanagari": "Devanagari",
-    "Bengali": "Bengali",
-    "Odia": "Odia",
-    "Gujarati": "Gujarati",
-    "Punjabi": "Gurmukhi",
+  // ✅ Enter immersive mode (hide status + nav safely)
+  Future<void> _enterCropMode() async {
+    await SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.immersiveSticky,
+      overlays: [],
+    );
+  }
 
-    "Tamil": "Tamil",
-    "Telugu": "Telugu",
-    "Kannada": "Kannada",
-    "Malayalam": "Malayalam",
-
-    "English": "ISO",
-    "Latin": "ISO",
-  };
+  // ✅ Restore system UI fully after crop
+  Future<void> _exitCropMode() async {
+    await SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+  }
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
-    if (image != null) {
-      setState(() => _selectedImage = File(image.path));
-    }
-  }
+    if (image == null) return;
 
-  Future<String?> _selectTargetLanguage() async {
-    return showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF1C2331), // navy
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (_) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "Choose Target Script",
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFFC89D29), // gold
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ..._languageScripts.entries.map(
-                  (entry) => ListTile(
-                    title: Text(
-                      entry.key,
-                      style: const TextStyle(fontSize: 18, color: Colors.white),
-                    ),
-                    onTap: () => Navigator.pop(context, entry.value),
-                    trailing: const Icon(
-                      Icons.arrow_forward_ios,
-                      size: 16,
-                      color: Colors.white54,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    try {
+      // 🔒 Hide system bars before opening cropper
+      await _enterCropMode();
+
+      final cropped = await ImageCropper().cropImage(
+        sourcePath: image.path,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: "Crop Image",
+            toolbarColor: const Color(0xFF1C2331),
+            toolbarWidgetColor: const Color(0xFFC89D29),
+            activeControlsWidgetColor: const Color(0xFFC89D29),
+            statusBarColor: const Color(0xFF1C2331),
+            hideBottomControls: false,
+            lockAspectRatio: false,
           ),
-        );
-      },
-    );
+        ],
+      );
+
+      // 🔓 Always restore UI
+      await _exitCropMode();
+
+      if (cropped == null) return;
+
+      if (!mounted) return;
+      setState(() => _selectedImage = File(cropped.path));
+    } catch (e) {
+      await _exitCropMode(); // safety restore
+      debugPrint("Crop Error: $e");
+    }
   }
 
   Future<void> _processImage() async {
     if (_selectedImage == null) return;
 
-    final target = await _selectTargetLanguage();
-    if (target == null) return;
-
     setState(() => _isProcessing = true);
 
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Processing image...")),
-      );
-
-      final result = await OCRService.processImage(_selectedImage!.path, target);
+      final result =
+          await OCRService.processImage(_selectedImage!.path, "Latin");
 
       final extracted = result["extracted_text"] ?? "No text found";
       final detectedLang = result["language"] ?? "Unknown";
@@ -123,16 +99,15 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
           builder: (_) => ResultScreen(
             text: extracted,
             language: detectedLang,
-            targetLanguage: target,
+            targetLanguage: "Latin",
             romanText: roman,
           ),
         ),
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e")),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
 
@@ -143,35 +118,22 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
   Widget build(BuildContext context) {
     const navy = Color(0xFF1C2331);
     const gold = Color(0xFFC89D29);
-    const ivory = Color(0xFFFAFAF7);
 
     return Scaffold(
       backgroundColor: navy,
       appBar: AppBar(
-        title: const Text("Upload from Gallery"),
+        title: const Text("Upload Image"),
         backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: ivory),
-          onPressed: () => Navigator.pop(context),
-        ),
       ),
       body: Center(
         child: _selectedImage == null
             ? ElevatedButton.icon(
                 onPressed: _pickImage,
-                icon: const Icon(Icons.photo_library_rounded, color: navy),
+                icon: const Icon(Icons.photo_library_rounded),
                 label: const Text("Choose Image"),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: gold,
                   foregroundColor: navy,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 14,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
                 ),
               )
             : Column(
@@ -179,7 +141,7 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
                 children: [
                   Image.file(
                     _selectedImage!,
-                    width: 300,
+                    width: 280,
                     height: 350,
                     fit: BoxFit.cover,
                   ),
@@ -189,13 +151,6 @@ class _GalleryUploadScreenState extends State<GalleryUploadScreen> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: gold,
                       foregroundColor: navy,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
                     ),
                     child: Text(
                       _isProcessing ? "Processing..." : "Process Image",
